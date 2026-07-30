@@ -1,54 +1,63 @@
-# SHAP & LIME ile Açıklanabilir Yapay Zeka Kredi Kartı Temerrüt Riski
+# Credit Card Default: SHAP vs LIME
 
-Bir kredi kartı temerrüt tahmin modeli eğitip **aynı tahminleri** iki farklı açıklanabilirlik (XAI) yöntemiyle (**SHAP** ve **LIME**) açıklayan, çıktılarını karşılaştıran çalışma.
+Train a default prediction model and explain the same predictions with **SHAP** and **LIME**, then compare the results.
 
+## Dataset
 
-Blackbox bir modelin "neden bu kararı verdiğini" iki bağımsız yöntemle açıklamak ve yöntemlerin çıktılarını karşılaştırarak temel farklarını ortaya koymak.
+**Taiwan Credit Card Default** — UCI / OpenML [`data_id=42477`](https://www.openml.org/d/42477)
 
-## Veri Seti
+30,000 credit card clients with repayment history, bill statements, and demographics (April–September 2005).
 
-**Taiwan Credit Card Default** (UCI / OpenML `data_id=42477`)
+| Target | Meaning |
+|--------|---------|
+| `0` | No default next month |
+| `1` | Default next month |
 
-30.000 kredi kartı müşterisinin geçmiş ödeme davranışı, fatura tutarları ve demografik bilgileri.
-
-| Hedef | Anlam |
-|-------|-------|
-| `0` | Ödendi: müşteri temerrüde düşmedi |
-| `1` | Temerrüt: bir sonraki ay ödemesini yapmadı |
+OpenML provides 23 feature columns named `x1`–`x23`. These correspond directly to the UCI variables `X1`–`X23` (credit limit, demographics, repayment status, bill amounts, payment amounts). There is no separate ID column in this OpenML version.
 
 ## Model
 
 - **Algorithm:** Logistic Regression (`class_weight="balanced"`)
-- **Precision:** `StandardScaler` ile standardizasyon
-- Basit ve doğrusal açıklanabilirlik yöntemlerini net görmek için bilinçli tercih.
+- **Preprocessing:** `StandardScaler` on all features
+- Linear model chosen so SHAP `LinearExplainer` gives exact attributions.
 
-## Yöntemler
+## Methods
 
-| **SHAP** (`LinearExplainer`) | Global + local katkılar | Özet grafik (summary) + tek müşteri waterfall |
-| **LIME** (`LimeTabularExplainer`) | Tek tahminin yerel açıklaması | Tek müşteri HTML açıklaması |
-| **Karşılaştırma** | Aynı müşteri için yan yana katkılar + yön uyumu | Karşılaştırma tablosu + diverging bar grafik |
+| Method | What it shows | Output |
+|--------|---------------|--------|
+| SHAP (`LinearExplainer`) | Global + local feature contributions | Summary plot + waterfall for one client |
+| LIME (`LimeTabularExplainer`) | Local explanation for one prediction | Bar chart for top features |
+| Comparison | Same client, both methods | Table + side-by-side bar chart |
 
-## Notebook Akışı
+## Notebook flow
 
-1. **Veri & Model** veriyi yükle, ölçekle, Logistic Regression eğit
-2. **SHAP** global özet + tek müşteri waterfall
-3. **LIME** aynı müşterinin yerel açıklaması
-4. **Karşılaştırma** SHAP ve LIME katkılarını yan yana tablo + grafik
-5. **Fark Tablosu** iki yöntemin kavramsal karşılaştırması
+1. Load data, apply correct column mapping, train model
+2. SHAP summary and single-client waterfall
+3. LIME explanation for the same client
+4. Compare SHAP and LIME contributions (sign agreement)
+5. Method comparison table
 
-## Temel Bulgular
+## Setup
 
-- İki yöntem de en etkili değişken grubu olarak **ödeme gecikmelerini ve kredi limitini** öne çıkardı.
-- Yüksek önemli değişkenlerde **yön uyumu** yüksekti; ayrışma düşük önemli değişkenlerde görüldü.
-- Sebep: **SHAP deterministiktir** (aynı girdi -> aynı çıktı), **LIME ise rastgele örneklemeye dayalı bir yaklaşımdır** ve tekrarlarda hafif değişebilir.
-- Sonuç çıkarım: Yüksek önemli değişkenlerde iki yöntem birbirini doğruluyorsa açıklamaya güvenilebilir.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+jupyter notebook SHAPvsLIME.ipynb
+```
 
-## SHAP vs LIME 
+## Key findings
 
-| Boyut | SHAP | LIME |
-|-------|------|------|
-| Temel fikir | Oyun teorisi (Shapley) | Yerel doğrusal yaklaşım |
-| Kapsam | Global + Local | Yalnızca Local |
-| Teorik garanti | Var | Yok (yaklaşım) |
-| Kararlılık | Deterministik | Değişebilir |
-| Hız | Daha yavaş | Hızlı |
+- Recent repayment status (`pay_0`) and bill/payment amounts are the strongest predictors.
+- SHAP and LIME agree on sign for the top features on the example client.
+- SHAP is deterministic; LIME can vary slightly between runs due to random sampling.
+
+## SHAP vs LIME (summary)
+
+| | SHAP | LIME |
+|---|------|------|
+| Basis | Game theory (Shapley) | Local linear approximation |
+| Scope | Global + local | Local only |
+| Guarantee | Yes (for compatible explainers) | No |
+| Stability | Deterministic | Can vary |
+| Speed | Slower in general; fast for linear models | Fast |
