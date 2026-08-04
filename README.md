@@ -2,18 +2,12 @@
 
 Train a default prediction model and explain the same predictions with **SHAP** and **LIME**, then compare the results.
 
+
 ## Dataset
 
-**Taiwan Credit Card Default** — UCI / OpenML `[data_id=42477](https://www.openml.org/d/42477)`
+[Default of Credit Card Clients — UCI ML Repository (id=350)](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients)
 
-30,000 credit card clients with repayment history, bill statements, and demographics (April–September 2005).
-
-
-| Target | Meaning               |
-| ------ | --------------------- |
-| `0`    | No default next month |
-| `1`    | Default next month    |
-
+30,000 credit card clients in Taiwan with payment history, bill statements, and demographics. Target `default payment next month`: `1` = default, `0` = paid.
 
 OpenML provides 23 feature columns named `x1`–`x23`. These correspond directly to the UCI variables `X1`–`X23` (credit limit, demographics, repayment status, bill amounts, payment amounts). 
 
