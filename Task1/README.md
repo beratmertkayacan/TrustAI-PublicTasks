@@ -17,7 +17,20 @@ OpenML provides 23 feature columns named `x1`–`x23`. These correspond directly
 - **Preprocessing:** `StandardScaler` on all features
 - Linear model chosen so SHAP `LinearExplainer` gives exact attributions.
 
+## Setup and run
 
+From the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r Task1/requirements.txt
+jupyter notebook Task1/SHAPvsLIME.ipynb
+```
+
+The notebook downloads the dataset from OpenML (`data_id=42477`) on first run. A local copy can be placed in `Task1/data/` but is not required.
+
+Run all cells top to bottom. Generated figures are saved in memory; optional exports go to `Task1/outputs/` (git-ignored).
 
 ## Methods
 
