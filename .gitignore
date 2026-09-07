@@ -7,3 +7,8 @@ outputs/
 data/
 .vscode/
 *.png
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+coverage.xml

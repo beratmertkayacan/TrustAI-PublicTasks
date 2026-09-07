@@ -1,0 +1,10 @@
+pandas
+numpy
+scikit-learn
+scipy
+shap
+matplotlib
+xlrd
+pytest
+pytest-cov
+jupyter
