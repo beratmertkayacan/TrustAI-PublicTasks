@@ -1,3 +1,11 @@
+# test_data.py dosyasının işlevi:
+#Temiz veri kabul
+#NaN, tek sınıf, yanlış tip, bozuk test_size → hata
+#Split tekrarlanabilir (random_state)
+#Scaler train mean≈0, std≈1
+#OpenML/Excel yükleme (ağ yok, monkeypatch)
+
+
 """Tests for explanation_drift.data (loading, validation, splitting, scaling)."""
 
 from __future__ import annotations

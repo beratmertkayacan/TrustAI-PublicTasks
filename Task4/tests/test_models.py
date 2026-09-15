@@ -1,3 +1,11 @@
+# test_models.py dosyasının işlevi:
+#LR + GB ikisi de üretilir
+#LR scaler kullanır, GB raw feature
+#Aynı seed → aynı tahmin
+#predict_proba 2 kolon, toplam 1
+#joblib kaydet/yükle aynı skoru verir
+
+
 """Tests for explanation_drift.models (training, prediction, persistence)."""
 
 from __future__ import annotations

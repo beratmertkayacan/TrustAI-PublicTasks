@@ -1,3 +1,11 @@
+# test_metrics.py dosyasının işlevi:
+#Mükemmel olasılık -> AUC 1
+#Ters olasılık -> AUC 0
+#Tek sınıf -> AUC nan (tüm benchmark çökmesin)
+#AUC düşünce degradation pozitif; Brier artınca da pozitif (“daha kötü”)
+#Drift score 0–1 arası, iyileşme 0’a clip
+
+
 """Tests for explanation_drift.metrics (predictive performance side)."""
 
 from __future__ import annotations
