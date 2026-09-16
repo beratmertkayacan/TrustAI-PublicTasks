@@ -12,3 +12,4 @@ data/
 htmlcov/
 .pytest_cache/
 coverage.xml
+!Task4/results/*.png
