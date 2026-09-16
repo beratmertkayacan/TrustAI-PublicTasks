@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from explanation_drift.data import FEATURE_NAMES, TARGET_NAME
+from explanation_drift.data import FEATURE_NAMES, TARGET_NAME, DataBundle, fit_scaler
+from explanation_drift.models import TrainedModel, train_advanced, train_baseline
 
 
 def make_credit_frame(n_rows: int = 200, seed: int = 0) -> pd.DataFrame:
@@ -47,3 +48,33 @@ def X_synth() -> pd.DataFrame:
 @pytest.fixture
 def y_synth(X_synth) -> pd.Series:
     return make_target(X_synth)
+
+
+@pytest.fixture
+def bundle(X_synth, y_synth) -> DataBundle:
+    """Small in-memory bundle: 150 train / 50 test rows.
+
+    Üç test modülü de buna ihtiyaç duyuyordu; conftest'te tek kopya tutmak
+    tanımların birbirinden sessizce ayrışmasını engelliyor.
+    """
+    X_train, X_test = X_synth.iloc[:150], X_synth.iloc[150:]
+    y_train, y_test = y_synth.iloc[:150], y_synth.iloc[150:]
+    return DataBundle(
+        X_train=X_train,
+        X_test=X_test,
+        y_train=y_train,
+        y_test=y_test,
+        scaler=fit_scaler(X_train),
+    )
+
+
+@pytest.fixture
+def baseline(bundle) -> TrainedModel:
+    """Fitted logistic regression on the synthetic bundle."""
+    return train_baseline(bundle.X_train, bundle.y_train, bundle.scaler)
+
+
+@pytest.fixture
+def advanced(bundle) -> TrainedModel:
+    """Fitted gradient boosting on the synthetic bundle."""
+    return train_advanced(bundle.X_train, bundle.y_train)

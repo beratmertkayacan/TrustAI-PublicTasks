@@ -9,7 +9,6 @@ import shap
 from sklearn.linear_model import LinearRegression
 from sklearn.neighbors import KNeighborsClassifier
 
-from explanation_drift.data import DataBundle, fit_scaler
 from explanation_drift.explain import (
     ExplanationResult,
     _as_matrix,
@@ -23,27 +22,8 @@ from explanation_drift.explain import (
     select_rows,
     top_k_features,
 )
-from explanation_drift.models import TrainedModel, train_advanced, train_baseline
+from explanation_drift.models import TrainedModel
 from explanation_drift.shift import generate_shifted_datasets
-
-
-@pytest.fixture
-def bundle(X_synth, y_synth) -> DataBundle:
-    X_train, X_test = X_synth.iloc[:150], X_synth.iloc[150:]
-    y_train, y_test = y_synth.iloc[:150], y_synth.iloc[150:]
-    return DataBundle(
-        X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test,
-        scaler=fit_scaler(X_train),
-    )
-
-
-@pytest.fixture
-def baseline(bundle) -> TrainedModel:
-    return train_baseline(bundle.X_train, bundle.y_train, bundle.scaler)
-
-@pytest.fixture
-def advanced(bundle) -> TrainedModel:
-    return train_advanced(bundle.X_train, bundle.y_train)
 
 
 

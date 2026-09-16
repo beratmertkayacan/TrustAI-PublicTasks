@@ -15,42 +15,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from explanation_drift.data import DataBundle, fit_scaler
 from explanation_drift.models import (
     ADVANCED_NAME,
     BASELINE_NAME,
     MODEL_NAMES,
-    TrainedModel,
     load_model,
     save_model,
     train_advanced,
     train_baseline,
     train_models,
 )
-
-
-@pytest.fixture
-def bundle(X_synth, y_synth) -> DataBundle:
-    """Small in-memory bundle: 150 train / 50 test rows."""
-    X_train, X_test = X_synth.iloc[:150], X_synth.iloc[150:]
-    y_train, y_test = y_synth.iloc[:150], y_synth.iloc[150:]
-    return DataBundle(
-        X_train=X_train,
-        X_test=X_test,
-        y_train=y_train,
-        y_test=y_test,
-        scaler=fit_scaler(X_train),
-    )
-
-
-@pytest.fixture
-def baseline(bundle) -> TrainedModel:
-    return train_baseline(bundle.X_train, bundle.y_train, bundle.scaler)
-
-
-@pytest.fixture
-def advanced(bundle) -> TrainedModel:
-    return train_advanced(bundle.X_train, bundle.y_train)
 
 
 # --------------------------------------------------------------------------- #
