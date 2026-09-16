@@ -16,8 +16,7 @@ shift alone and not from which customers happened to be sampled.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence
-
+from typing import Mapping, Optional
 import numpy as np
 import pandas as pd
 import shap
