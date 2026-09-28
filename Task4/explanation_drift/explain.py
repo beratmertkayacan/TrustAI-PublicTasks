@@ -2,11 +2,11 @@
 
 1. Exact explainers only. LogisticRegression is explained with "LinearExplainer" 
 GradientBoosting with "TreeExplainer"; both are analytic, not sampled.
-(Örnekleme tabanlı bir explainer kullansaydık ölçtüğümüz drift'in bir kısmı Monte Carlo gürültüsü olurdu)
+(If we used a sampling based explainer, part of the measured drift would be Monte Carlo noise.)
 
 2. Frozen background. The reference distribution handed to the explainer is
 always the original training data (never the shifted frame being explained)
-(SHAP değerleri "ortalama bir müşteriye göre fark" demektir; referansı kaymış veriyle birlikte kaydırırsak kaymayı kendi elimizle silmiş oluruz)
+(A SHAP value means "difference from an average customer"; if the reference moves together with the shifted data, we erase the shift ourselves.)
 
 3. Same rows everywhere. When subsampling, the row indices are drawn once
 and reused for every dataset, so differences between datasets come from the
@@ -95,13 +95,13 @@ def build_explainer(model: TrainedModel, X_background: pd.DataFrame):
 
 def _as_matrix(values, n_samples: int, n_features: int) -> np.ndarray:
     """Normalise every SHAP output shape into a plain (n_samples, n_features).
-(shap sürümüne ve modele göre çıktı 2B dizi, 3B dizi (n, d, n_classes) veya
-sınıf başına dizi listesi olabilir. İkili sınıflandırmada ilgilendiğimiz her zaman pozitif sınıftır (temerrüt))"""
-    if isinstance(values, list): # eski API: sınıf başına bir dizi
-        values = values[-1] # pozitif sınıf (temerrüt)
+(Depending on the shap version and the model the output can be a 2D array, a 3D array (n, d, n_classes) or
+a list with one array per class. For binary classification we always want the positive class (default).)"""
+    if isinstance(values, list): # old API: one array per class
+        values = values[-1] # positive class (default)
     array = np.asarray(values)
     if array.ndim == 3: # (n, d, n_classes)
-        array = array[:, :, -1]# pozitif sınıf
+        array = array[:, :, -1]# positive class
     if array.shape != (n_samples, n_features):
         raise ValueError(
             f"Unexpected SHAP output shape {array.shape}, "
@@ -118,8 +118,8 @@ def _base_value(explainer) -> float:
 def model_margin(model: TrainedModel, X: pd.DataFrame) -> np.ndarray:
     """Raw model output in the space SHAP explains (log-odds / margin).
 
-    Bu fonksiyon üretimde kullanılmıyor; SHAP'ın toplanabilirlik (additivity)
-    garantisini test edebilmek için var: sum(shap) + base == margin.
+    This function is not used in production; it exists so the SHAP additivity
+    guarantee can be tested: sum(shap) + base == margin.
     """
     return np.asarray(model.estimator.decision_function(model.transform(X))).ravel()
 
@@ -188,7 +188,7 @@ def explain_datasets(
 ) -> dict[str, ExplanationResult]:
     # Explain each dataset with the same frozen model and frozen background.
     rows = select_rows(datasets, max_samples=max_samples, seed=seed)
-    explainer = build_explainer(model, X_background) # Explainer bir kez kurulur: arka plan dağılımı tüm veri setleri için aynı.
+    explainer = build_explainer(model, X_background) # The explainer is built once: the background distribution is the same for every data set.
     return {
         name: compute_shap_values(
             model, frame.loc[rows], X_background, dataset=name, explainer=explainer
@@ -202,9 +202,9 @@ def explain_datasets(
 def global_importance(shap_values: pd.DataFrame) -> pd.Series:
     """Mean absolute SHAP value per feature, sorted descending.
 
-    Mutlak değer alıyoruz çünkü global önem "ne kadar etkili" sorusudur; işaret
-    (artırıyor mu azaltıyor mu) müşteri bazında anlamlıdır, popülasyon
-    ortalamasında birbirini götürür.
+    We take absolute values because global importance asks "how strong is the effect"; the sign
+    (increase or decrease) is meaningful for a single customer but cancels out in a
+    population average.
     """
     if not isinstance(shap_values, pd.DataFrame):
         raise TypeError("shap_values must be a pandas DataFrame")

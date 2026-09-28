@@ -1,9 +1,9 @@
-# test_data.py dosyasının işlevi:
-#Temiz veri kabul
-#NaN, tek sınıf, yanlış tip, bozuk test_size → hata
-#Split tekrarlanabilir (random_state)
-#Scaler train mean≈0, std≈1
-#OpenML/Excel yükleme (ağ yok, monkeypatch)
+# What test_data.py covers:
+# clean data is accepted
+# NaN, single class, wrong type, bad test_size -> error
+# the split is reproducible (random_state)
+# scaler gives train mean about 0 and std about 1
+# OpenML/Excel loading (no network, monkeypatch)
 
 
 """Tests for explanation_drift.data (loading, validation, splitting, scaling)."""

@@ -53,8 +53,8 @@ class BenchmarkResult:
     def early_warning_rate(self) -> float:
         """Share of shifted comparisons where explanation drift exceeded performance drift.
 
-        Mutlak eşiğe dayanan "verdict" küçük sayılarda korumacı davranır.
-        Bu oran işaret testidir: 1.0 demek "her koşulda açıklama daha çok kaydı".
+        The "verdict", which uses an absolute threshold, is conservative for small numbers.
+        This rate is a sign test: 1.0 means the explanation moved more in every case.
         """
         shifted = self._shifted()
         if shifted.empty:
@@ -80,8 +80,8 @@ def run_benchmark(
 ) -> BenchmarkResult:
     """
     bundle:
-        Pre-loaded data. Testlerde gerçek veri setini yüklemeden uçtan uca koşmak için var; 
-        verilmezse "load_dataset" çağrılır. output_dir: "None" verilirse hiçbir dosya yazılmaz, sonuçlar yalnızca döndürülür.
+        Pre-loaded data. It exists so tests can run end to end without loading the real data set;
+        if it is not given, "load_dataset" is called. output_dir: with "None" no file is written and only the results are returned.
     """
     bundle = bundle if bundle is not None else load_dataset(local_path=local_path)
     models = train_models(bundle, random_state=seed)
@@ -95,7 +95,7 @@ def run_benchmark(
     importance: dict[str, pd.DataFrame] = {}
 
     for model_name, model in models.items():
-        # performans tarafı 
+        # performance side
         scores = {
             name: compute_performance(bundle.y_test, model.predict_positive_proba(frame))
             for name, frame in datasets.items()
@@ -109,7 +109,7 @@ def run_benchmark(
             for name, values in scores.items()
         }
 
-        # açıklama tarafı 
+        # explanation side
         explanations = explain_datasets(
             model, datasets, bundle.X_train, max_samples=max_samples, seed=seed
         )
@@ -117,7 +117,7 @@ def run_benchmark(
         drift_frames.append(model_drift)
         importance[model_name] = importance_table(explanations)
 
-        # iki eğriyi yan yana koy 
+        # put the two curves side by side
         comparison = early_warning_table(
             model_drift.set_index("dataset")["explanation_drift_score"].to_dict(),
             performance_drift,
@@ -231,8 +231,8 @@ if __name__ == "__main__": # pragma: no cover
 
 """End-to-end benchmark runner.
 
-Tek komut: veriyi yükle, iki modeli eğit, dokuz değerlendirme seti üret, her biri
-için SHAP hesapla, drift ve performans metriklerini çıkar, tabloları ve figürleri outputs/ altına yaz.
+One command: load the data, train two models, build nine evaluation sets, compute SHAP for
+each of them, produce the drift and performance metrics, and write the tables and figures under outputs/.
 
     python -m explanation_drift.pipeline --max-samples 1500
 """

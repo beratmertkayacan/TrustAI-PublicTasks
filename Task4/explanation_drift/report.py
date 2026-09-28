@@ -13,7 +13,7 @@ from .shift import ORIGINAL_LABEL, SEVERITY_LEVELS
 FIGURE_SIZE = (9, 5)
 DPI = 150
 
-# Çizimlerde kullanılan eğrilerin renk sabitleri (dosya boyu tutarlı ilerle) 
+# Fixed colours for the curves in the plots (kept the same across the file)
 EXPLANATION_COLOUR = "#c2410c"
 PERFORMANCE_COLOUR = "#1d4ed8"
 
@@ -25,7 +25,7 @@ def parse_dataset_name(
 ) -> tuple[str, float]:
     """Split "mixed_severe" into ("mixed", 2.5).
 
-    "original" maps to intensity 0.0: kayma merdiveninin başlangıç noktası.
+    "original" maps to intensity 0.0: the start of the severity ladder.
     """
     if name == ORIGINAL_LABEL:
         return ORIGINAL_LABEL, 0.0
@@ -64,7 +64,7 @@ def save_figure(figure: Figure, path: Union[str, Path], dpi: int = DPI) -> Path:
     """Render a figure to PNG through the Agg canvas (no GUI, no global state)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    FigureCanvasAgg(figure)# figürü Agg tuvaline bağla
+    FigureCanvasAgg(figure)# attach the figure to the Agg canvas
     figure.savefig(path, dpi=dpi, format="png")
     return path
 
@@ -85,7 +85,7 @@ def plot_drift_curves(
 ) -> Figure:
     """The headline figure: two drift curves on one shift-intensity axis.
 
-    Eğrilerden hangisinin önce yükseldiği, tüm çalışmanın cevabıdır.
+    Which curve rises first is the answer of the whole study.
     """
     _require_columns(comparison, ["dataset", "explanation_drift", "performance_drift"])
     axis = severity_axis(comparison["dataset"], levels)
@@ -95,7 +95,7 @@ def plot_drift_curves(
     ax = figure.subplots()
     for kind, group in data.groupby("kind"):
         if kind == ORIGINAL_LABEL:
-            continue # orijinal her ailenin başlangıç noktası, ayrı seri değil
+            continue # original is the start of every family, not a separate series
         start = data[data["kind"] == ORIGINAL_LABEL]
         series = pd.concat([start, group]).sort_values("intensity")
         ax.plot(series["intensity"], series["explanation_drift"], marker="o",
@@ -175,7 +175,7 @@ def plot_importance_shift(
 def frame_to_markdown(frame: pd.DataFrame) -> str:
     """Render a DataFrame as a markdown table without extra dependencies.
 
-    DataFrame.to_markdown gizli bir tabulate bağımlılığı istesin eksikse patlar, formatlayıcı yakalasın"""
+    DataFrame.to_markdown needs a hidden tabulate dependency and fails when it is missing, so format here."""
     if frame.empty:
         raise ValueError("Cannot render an empty frame")
     header = [str(c) for c in frame.columns]
@@ -219,9 +219,9 @@ def save_markdown(text: str, path: Union[str, Path]) -> Path:
 
     """Tables and figures for the benchmark.
 
-Matplotlib burada pyplot üzerinden değil, doğrudan Figure nesnesiyle
-kullanılıyor. Sebebi: pyplot global bir durum (state) tutar. 
-Açık figürleri biriktirir, backend seçer, test koşarken pencere açmaya çalışabilir. 
-Figure + Agg canvas ise saf bir nesnedir: fonksiyon figürü döndürür, çağıran isterse
-kaydeder, testler de figürün içeriğini (eksen sayısı, çizgi sayısı, etiketler) dosyaya hiç dokunmadan doğrulayabilir.
+Matplotlib is used through the Figure object here, not through pyplot.
+The reason: pyplot keeps a global state.
+It collects open figures, picks a backend and may try to open a window during tests.
+Figure + Agg canvas is a plain object: the function returns a figure, the caller saves it if
+it wants, and tests can check the figure content (axis count, line count, labels) without touching any file.
 """

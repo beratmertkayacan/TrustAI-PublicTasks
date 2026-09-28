@@ -1,9 +1,9 @@
-# test_models.py dosyasının işlevi:
-#LR + GB ikisi de üretilir
-#LR scaler kullanır, GB raw feature
-#Aynı seed → aynı tahmin
-#predict_proba 2 kolon, toplam 1
-#joblib kaydet/yükle aynı skoru verir
+# What test_models.py covers:
+# both LR and GB are produced
+# LR uses the scaler, GB uses raw features
+# same seed -> same prediction
+# predict_proba has 2 columns that sum to 1
+# joblib save/load gives the same score
 
 
 """Tests for explanation_drift.models (training, prediction, persistence)."""

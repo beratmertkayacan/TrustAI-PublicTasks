@@ -1,9 +1,9 @@
-# test_metrics.py dosyasının işlevi:
-#Mükemmel olasılık -> AUC 1
-#Ters olasılık -> AUC 0
-#Tek sınıf -> AUC nan (tüm benchmark çökmesin)
-#AUC düşünce degradation pozitif; Brier artınca da pozitif (“daha kötü”)
-#Drift score 0–1 arası, iyileşme 0’a clip
+# What test_metrics.py covers:
+# perfect probabilities -> AUC 1
+# inverted probabilities -> AUC 0
+# single class -> AUC nan, so the whole benchmark does not crash
+# lower AUC gives positive degradation; higher Brier is positive too ("worse")
+# drift score stays in 0-1, improvements clip to 0
 
 
 """Tests for explanation_drift.metrics (predictive performance side)."""

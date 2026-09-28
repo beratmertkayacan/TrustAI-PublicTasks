@@ -1,22 +1,22 @@
-"""İlk 10 değişmeden 11-23 arası tamamen karışabilir -> top_k_overlap bunu göremez, rank_disagreement görür.
-Sıralama aynı kalıp bütün katkılar iki katına çıkabilir (model daha keskin karar veriyordur) -> sıralama metrikleri bunu göremez, distribution_shift görür.
-pay_0'ın payı %30'dan %55'e çıkıp sıra değişmeyebilir -> importance_reallocation bunu yakalar.
+"""If the top 10 stay the same but ranks 11-23 get shuffled, top_k_overlap misses it and rank_disagreement catches it.
+If the ranking stays the same but all contributions double, the ranking metrics miss it and distribution_shift catches it.
+If pay_0 grows from 30% to 55% of the total without changing its rank, importance_reallocation catches it.
 
 
 Explanation drift metrics.
 
-Modül sorusu: -model aynı kalırken açıklaması ne kadar kaydı?- 
-Her metrik bir referans (orijinal test seti) ile bir kaymış ver setinin SHAP çıktısını karşılaştırır.
+Module question: how much did the explanation move while the model stayed the same?
+Each metric compares the SHAP output of a reference (the original test set) with a shifted data set.
 
 Four complementary views of the same question
 ---------------------------------------------
-top_k_overlap: Aynı değişkenler hala ilk k'da mı? 
-rank_correlation: Sıralamanın tamamı ne kadar korundu? (Spearman / Kendall)
-distribution_shift: Katkıların dağılımı değişti mi? (Wasserstein + JS)
-importance_reallocation:Önem ağırlığı değişkenler arasında ne kadar el değiştirdi?
+top_k_overlap: are the same features still in the top k?
+rank_correlation: how much of the full ranking is kept? (Spearman / Kendall)
+distribution_shift: did the shape of the contributions change? (Wasserstein + JS)
+importance_reallocation: how much importance moved between features?
 
 All four are folded into a single 0-1 "explanation_drift_score" where 0 means
-"explanation unchanged" and 1 means "nothing in common". Aynı ölçekte olmaları kasıtlı: performans tarafındaki "performance_drift_score" ile doğrudan karşılaştırılabilsinler diye.
+"explanation unchanged" and 1 means "nothing in common". The same 0-1 scale is used on purpose, so this score can be compared directly with "performance_drift_score".
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from .explain import DEFAULT_TOP_K, ExplanationResult
 from .shift import normalised_wasserstein
 
 
-# Bileşenlerin ağırlıkları. Hepsi 0-1 aralığında (1'e yakınsa fazla kayma)
+# Component weights. All components are in the 0-1 range (close to 1 means more drift).
 DRIFT_COMPONENTS = (
     "top_k_overlap_loss",
     "rank_disagreement",
@@ -48,8 +48,8 @@ HISTOGRAM_BINS = 20
 #helpers
 def _align(reference: pd.Series, shifted: pd.Series) -> tuple[pd.Series, pd.Series]:
     """put two importance series on the same feature order
-    !!her iki seri de kendi değerine göre sıralı geldiği için ham ".values" karşılaştırması her zaman mükemmel korelasyon verirdi.
-    isimle hizalama bunu önler
+    Both series arrive sorted by their own values, so comparing raw ".values" would always
+    give a perfect correlation. Aligning by feature name prevents that.
     """
 
     if not isinstance(reference, pd.Series) or not isinstance(shifted, pd.Series):
@@ -64,7 +64,7 @@ def _align(reference: pd.Series, shifted: pd.Series) -> tuple[pd.Series, pd.Seri
 def _normalise(importance: pd.Series) -> pd.Series:
     """Turn an importance vector into a distribution summing to 1"""
     total = float(importance.abs().sum())
-    # Tüm SHAP değerleri sıfırsa eşit dağılım varsay.
+    # All SHAP values are zero, so assume an equal split.
     if total == 0.0:
         return pd.Series(1.0 / len(importance), index=importance.index)
     return importance.abs() / total
@@ -85,8 +85,8 @@ def top_k_overlap(
 ) -> float:
     """Fraction of the reference top-k features still present in the shifted top-k.
 
-    Jaccard yerine |kesişim| / k kullan: iki küme aynı boyutta olduğundan
-    bu değer doğrudan "ilk k'nın yüzde kaçı korundu" diye okuyoruz.
+    Use |intersection| / k instead of Jaccard: both sets have the same size, so the value
+    reads directly as "what share of the top k was kept".
     """
     if k <= 0:
         raise ValueError(f"k must be positive, got {k}")
@@ -102,7 +102,7 @@ def rank_correlation(
     """Correlation between two importance rankings, aligned by feature name.
 
     Returns a value in "[-1, 1]"; 1 = identical ordering, 0 = unrelated, -1 = exactly reversed. 
-    (Tek değişkenli girdide korelasyon tanımsızdır ve "nan" döner)
+    (With a single feature the correlation is undefined and "nan" is returned.)
     """
     reference, shifted = _align(reference, shifted)
     if len(reference) < 2:
@@ -121,7 +121,7 @@ def _js_divergence(reference: np.ndarray, actual: np.ndarray, bins: int) -> floa
     low = min(reference.min(), actual.min())
     high = max(reference.max(), actual.max())
     if low == high: 
-        return 0.0 # iki dağılım da tek bir noktada yığılmış
+        return 0.0 # both distributions sit on a single point
     edges = np.linspace(low, high, bins + 1)
     p = np.histogram(reference, edges)[0] / reference.size
     q = np.histogram(actual, edges)[0] / actual.size
@@ -161,8 +161,8 @@ def shap_distribution_shift(
 def importance_reallocation(reference: pd.Series, shifted: pd.Series) -> float:
     """Half the L1 distance between the two normalised importance vectors.
 
-    İki olasılık vektörü arasındaki L1 mesafesi [0, 2] aralığındadır; ikiye
-    bölünce "önem ağırlığının yüzde kaçı el değiştirdi" olarak okunur.
+    The L1 distance between two probability vectors is in [0, 2]; dividing it by two
+    gives "what share of the importance moved".
     """
     reference, shifted = _align(reference, shifted)
     p, q = _normalise(reference), _normalise(shifted)
@@ -185,7 +185,7 @@ def drift_components(
 
     return {
         "top_k_overlap_loss": 1.0 - top_k_overlap(reference, shifted, k),
-        # Spearman [-1, 1] -> [0, 1]; tam ters sıralama 1.0 verir.
+        # Spearman [-1, 1] -> [0, 1]; a fully reversed ranking gives 1.0.
         "rank_disagreement": float("nan")
         if np.isnan(correlation)
         else (1.0 - correlation) / 2.0,
@@ -224,7 +224,7 @@ def combine_components(
     for name, weight in weights.items():
         value = components.get(name, float("nan"))
         if np.isnan(value):
-            continue # tanımsız bileşen skoru bozmasın, sadece dışarıda kalsın
+            continue # skip an undefined component instead of letting it break the score
         accumulated += weight * value
         used += weight
     if used == 0.0:
@@ -261,8 +261,8 @@ def drift_table(
 
 def early_warning_index(explanation_drift: float, performance_drift: float) -> float:
     """  "explanation_drift - performance_drift"
-    Pozitif değer açıklamanın performanstan daha çok bozulduğunu, yani SHAP'ın
-    erken uyarı verdiğini gösterir. Negatif değer tersini söyler.
+    A positive value means the explanation moved more than the performance, so SHAP
+    gives an early warning. A negative value means the opposite.
     """
     if np.isnan(explanation_drift) or np.isnan(performance_drift):
         return float("nan")

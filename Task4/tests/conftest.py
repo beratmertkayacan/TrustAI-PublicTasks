@@ -54,8 +54,8 @@ def y_synth(X_synth) -> pd.Series:
 def bundle(X_synth, y_synth) -> DataBundle:
     """Small in-memory bundle: 150 train / 50 test rows.
 
-    Üç test modülü de buna ihtiyaç duyuyordu; conftest'te tek kopya tutmak
-    tanımların birbirinden sessizce ayrışmasını engelliyor.
+    All three test modules needed this; keeping one copy in conftest stops the
+    definitions from drifting apart.
     """
     X_train, X_test = X_synth.iloc[:150], X_synth.iloc[150:]
     y_train, y_test = y_synth.iloc[:150], y_synth.iloc[150:]

@@ -54,7 +54,7 @@ def test_parse_dataset_name_rejects_unknown_level():
 def test_severity_axis_is_ordered(comparison):
     axis = severity_axis(comparison["dataset"])
     mixed = axis[axis["kind"] == "mixed"]
-    assert list(mixed["intensity"]) == [1.0, 2.5] # artan şiddet
+    assert list(mixed["intensity"]) == [1.0, 2.5] # increasing severity
     with pytest.raises(ValueError, match="No datasets"):
         severity_axis([])
 
@@ -74,19 +74,19 @@ def test_save_table_refuses_empty(tmp_path):
 def test_save_figure_writes_a_png(comparison, tmp_path):
     path = save_figure(plot_drift_curves(comparison), tmp_path / "f.png")
     assert path.exists()
-    assert path.read_bytes()[:4] == b"\x89PNG" # gerçek PNG için imza
+    assert path.read_bytes()[:4] == b"\x89PNG" # real PNG signature
 
 
-# figures - içeriği doğruluyoruz, piksellerini değil
+# figures - we check the content, not the pixels
 def test_drift_curves_draw_two_lines(comparison):
     figure = plot_drift_curves(comparison)
     assert isinstance(figure, Figure)
     axis = figure.axes[0]
-    assert len(axis.lines) == 2 # açıklama + performans
+    assert len(axis.lines) == 2 # explanation + performance
     labels = [line.get_label() for line in axis.lines]
     assert any("explanation" in label for label in labels)
     assert any("performance" in label for label in labels)
-    # her iki eğri de orijinden (intensity 0) başlamalı
+    # both curves must start at the origin (intensity 0)
     for line in axis.lines:
         assert line.get_xdata()[0] == 0.0
 
@@ -112,20 +112,20 @@ def test_importance_shift_plot(tmp_path):
     )
     figure = plot_importance_shift(importance, top_n=2)
     axis = figure.axes[0]
-    assert len(axis.patches) == 4 # 2 değişken x 2 seri
+    assert len(axis.patches) == 4 # 2 features x 2 series
     with pytest.raises(ValueError, match="top_n must be positive"):
         plot_importance_shift(importance, top_n=0)
     with pytest.raises(ValueError, match="Missing required columns"):
         plot_importance_shift(importance, shifted_column="nope")
 
 
-#markdown üretimi doğrulama
+# markdown output checks
 def test_frame_to_markdown_structure():
     frame = pd.DataFrame({"a": [1, None], "b": ["x", "y"]})
     lines = frame_to_markdown(frame).splitlines()
     assert lines[0] == "| a | b |"
     assert lines[1] == "|---|---|"
-    assert lines[3] == "|  | y |" # NaN boş hücreye dönüşür
+    assert lines[3] == "|  | y |" # NaN becomes an empty cell
     with pytest.raises(ValueError, match="empty frame"):
         frame_to_markdown(pd.DataFrame())
 

@@ -3,10 +3,10 @@ Distribution shift generation and shift-magnitude measurement.
 
 Shift families
 --------------
-age: Popülasyon yaşlanıyor (additive, in years).
-credit_limit: Enflasyon / limit artışı (multiplicative).
-payment_amount: Müşteriler daha az ödeme yapıyor (multiplicative decay).
-mixed: Hepsi birlikte + tüm sürekli değişkenlere Gauss gürültüsü.
+age: the population gets older (additive, in years).
+credit_limit: inflation / limit growth (multiplicative).
+payment_amount: customers pay less (multiplicative decay).
+mixed: all of them together + Gaussian noise on every continuous feature.
 
 moderate and severe are same transformation at two strengths.
 """
@@ -23,12 +23,12 @@ from .data import RANDOM_STATE
 
 #shift parametreleri (moderate = intensity 1.0)
 
-AGE_SHIFT_YEARS = 5.0        # moderate seviyede popülasyon ~5 yaş yaşlanıyor
-LIMIT_GROWTH = 0.35          # moderate: kredi limitleri %35 büyüyor
-PAYMENT_DECLINE = 0.35       # moderate: ödeme tutarları %35 azalıyor
-NOISE_SCALE = 0.10           # mixed: her değişkenin std'sinin %10'u kadar gürültü
+AGE_SHIFT_YEARS = 5.0        # at moderate level the population gets about 5 years older
+LIMIT_GROWTH = 0.35          # moderate: credit limits grow by 35%
+PAYMENT_DECLINE = 0.35       # moderate: payment amounts drop by 35%
+NOISE_SCALE = 0.10           # mixed: noise equal to 10% of each feature std
 
-# Severity ladder -> Aynı dönüşüm, iki farklı şiddet.
+# Severity ladder -> the same transform at two strengths.
 SEVERITY_LEVELS: dict[str, float] = {"moderate": 1.0, "severe": 2.5}
 
 ORIGINAL_LABEL = "original"
@@ -38,10 +38,10 @@ LIMIT_COLUMN = "limit_bal"
 PAYMENT_COLUMNS = ["pay_amt1", "pay_amt2", "pay_amt3", "pay_amt4", "pay_amt5", "pay_amt6"]
 BILL_COLUMNS = ["bill_amt1", "bill_amt2", "bill_amt3", "bill_amt4", "bill_amt5", "bill_amt6"]
 
-# Kategorik(ordinal) kolonlar -> bunlara gürültü eklemek anlamsız olurdu.
+# Categorical (ordinal) columns -> adding noise here would make no sense.
 CATEGORICAL_COLUMNS = ["sex", "education", "marriage", "pay_0", "pay_2", "pay_3", "pay_4", "pay_5", "pay_6"]
 
-AGE_BOUNDS = (18.0, 100.0)   # gerçekçi yaş aralığı
+AGE_BOUNDS = (18.0, 100.0)   # realistic age range
 
 # helper func frame is valid
 def _check_frame(X: pd.DataFrame, required: Sequence[str]) -> None:
@@ -74,8 +74,8 @@ def shift_age(
     _check_frame(X, [AGE_COLUMN])
     intensity = _check_intensity(intensity)
     rng = _rng(seed)
-    out = X.copy()  # girdi frame'i asla mutasyona uğramaz
-    # Additive kayma + küçük bireysel varyasyon (herkes aynı anda yaşlanmaz)
+    out = X.copy()  # the input frame is never mutated
+    # Additive shift + small individual variation (not everyone ages at the same time)
     jitter = rng.normal(0.0, 1.0 * intensity, len(out))
     out[AGE_COLUMN] = np.clip(
         out[AGE_COLUMN] + intensity * AGE_SHIFT_YEARS + jitter, *AGE_BOUNDS
@@ -91,7 +91,7 @@ def shift_credit_limit(
     intensity = _check_intensity(intensity)
     rng = _rng(seed)
     out = X.copy()
-    # Çarpımsal büyüme (negatife düşmesi matematiksel olarak imkânsız)
+    # Multiplicative growth (it can never become negative)
     factor = (1.0 + LIMIT_GROWTH) ** intensity
     noise = rng.normal(1.0, 0.05 * intensity, len(out))
     out[LIMIT_COLUMN] = np.maximum(out[LIMIT_COLUMN] * factor * noise, 0.0)
@@ -109,7 +109,7 @@ def shift_payment_amount(
     factor = (1.0 - PAYMENT_DECLINE) ** intensity
     for column in PAYMENT_COLUMNS:
         noise = rng.normal(1.0, 0.05 * intensity, len(out))
-        # Ödemeler negatif olamaz  (alt sınır 0)
+        # Payments cannot be negative (lower bound 0)
         out[column] = np.maximum(out[column] * factor * noise, 0.0)
     return out
 
@@ -120,7 +120,7 @@ def shift_mixed(
     # Three shifts at once, plus Gaussian noise on the continuous columns. headline scenario
     _check_frame(X, [AGE_COLUMN, LIMIT_COLUMN, *PAYMENT_COLUMNS])
     intensity = _check_intensity(intensity)
-    # Aynı seed'i üç kez kullanmamak için her adıma farklı offset veriyoruz
+    # Use a different offset per step so the same seed is not reused three times
     base = 0 if seed is None else int(seed)
     out = shift_age(X, intensity, None if seed is None else base)
     out = shift_credit_limit(out, intensity, None if seed is None else base + 1)
@@ -134,10 +134,10 @@ def shift_mixed(
     for column in continuous:
         std = float(X[column].std())
         if std == 0.0:
-            continue  # kolon sabitse gürültü ekleme, atla (dağılımı bozmamak için)
+            continue  # constant column: skip the noise so the distribution is not broken
         out[column] = out[column] + rng.normal(0.0, NOISE_SCALE * intensity * std, len(out))
-    # Gürültü sonrası fiziksel sınırları tekrar uygula.
-    # Not: bill_amt negatif olabilir (fazla ödeme -> alacaklı bakiye), onu kırpmamak için
+    # Apply the physical bounds again after the noise.
+    # Note: bill_amt can be negative (overpayment -> credit balance), so it is not clipped.
     for column in [LIMIT_COLUMN, *PAYMENT_COLUMNS]:
         out[column] = np.maximum(out[column], 0.0)
     out[AGE_COLUMN] = np.clip(out[AGE_COLUMN], *AGE_BOUNDS)
@@ -153,7 +153,7 @@ SHIFT_FUNCTIONS = {
 
 SHIFT_KINDS = tuple(SHIFT_FUNCTIONS)
 
-# Ana eksen: tek değişkenli kaymalar ablation, mixed ise kritik.
+# Main axis: single feature shifts are the ablation, mixed is the critical one.
 HEADLINE_KIND = "mixed"
 
 
@@ -197,7 +197,7 @@ def generate_shifted_datasets(
 
 
 
-# shift magnitude: "moderate" ve "severe" etiketlerini sayısallaştıran kısım
+# shift magnitude: the part that puts a number on the "moderate" and "severe" labels
 
 def population_stability_index(
     reference: Sequence[float],
@@ -216,7 +216,7 @@ def population_stability_index(
 
     edges = np.unique(np.quantile(ref, np.linspace(0.0, 1.0, bins + 1)))
     if edges.size < 2:
-        return 0.0  # sabit referans dağılımı (kayma yok)
+        return 0.0  # constant reference distribution (no shift)
     edges[0], edges[-1] = -np.inf, np.inf
 
     ref_share = np.clip(np.histogram(ref, edges)[0] / ref.size, epsilon, None)
