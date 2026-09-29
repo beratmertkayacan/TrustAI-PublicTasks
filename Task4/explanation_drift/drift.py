@@ -272,7 +272,12 @@ def early_warning_index(explanation_drift: float, performance_drift: float) -> f
 def early_warning_table(
     drift_scores: Mapping[str, float], performance_scores: Mapping[str, float]
 ) -> pd.DataFrame:
-    """Side-by-side comparison of the two drift curves, with a verdict column."""
+    """Side-by-side comparison of the two drift curves.
+
+    This table only holds numbers. The decision of what counts as drift needs a
+    threshold, and that threshold is estimated from data in
+    :mod:`explanation_drift.thresholds`.
+    """
     missing = set(drift_scores) ^ set(performance_scores)
     if missing:
         raise ValueError(f"Datasets must match on both sides, got mismatch: {missing}")
@@ -291,18 +296,6 @@ def early_warning_table(
                 "performance_drift": performance,
                 "early_warning_index": index,
                 "drift_ratio": float("nan") if performance == 0.0 else explanation / performance,
-                "verdict": _verdict(index),
             }
         )
     return pd.DataFrame(rows).reset_index(drop=True)
-
-
-def _verdict(index: float, tolerance: float = 0.05) -> str:
-    """Label the gap between the two drift curves."""
-    if np.isnan(index):
-        return "unknown"
-    if index > tolerance:
-        return "explanation degrades first"
-    if index < -tolerance:
-        return "performance degrades first"
-    return "degrade together"

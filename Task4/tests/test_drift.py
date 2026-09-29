@@ -219,14 +219,17 @@ def test_early_warning_index_sign():
     assert np.isnan(early_warning_index(float("nan"), 0.1))
 
 
-def test_early_warning_table_verdicts():
+def test_early_warning_table_columns_and_ratio():
+    """The table holds numbers only; the verdict needs a threshold and lives elsewhere."""
     table = early_warning_table(
         {"a": 0.30, "b": 0.10, "c": 0.20},
         {"a": 0.10, "b": 0.30, "c": 0.20},
     ).set_index("dataset")
-    assert table.loc["a", "verdict"] == "explanation degrades first"
-    assert table.loc["b", "verdict"] == "performance degrades first"
-    assert table.loc["c", "verdict"] == "degrade together"
+    assert list(table.columns) == [
+        "explanation_drift", "performance_drift", "early_warning_index", "drift_ratio",
+    ]
+    assert table.loc["a", "early_warning_index"] == pytest.approx(0.20)
+    assert table.loc["b", "early_warning_index"] == pytest.approx(-0.20)
     assert table.loc["a", "drift_ratio"] == pytest.approx(3.0)
 
 
@@ -235,10 +238,9 @@ def test_early_warning_table_zero_performance_drift():
     assert np.isnan(table.loc[0, "drift_ratio"])
 
 
-def test_early_warning_table_unknown_verdict():
-    """On a subset with a single class the performance score can be nan; then the verdict must be "unknown"."""
+def test_early_warning_table_keeps_nan_scores():
+    """On a subset with a single class the performance score can be nan."""
     table = early_warning_table({"a": 0.2}, {"a": float("nan")})
-    assert table.loc[0, "verdict"] == "unknown"
     assert np.isnan(table.loc[0, "early_warning_index"])
 
 
