@@ -9,6 +9,13 @@ import pandas as pd
 
 from .data import RANDOM_STATE, DataBundle, load_dataset
 from .drift import drift_table, early_warning_table
+from .thresholds import (
+    BOOTSTRAP_SAMPLES,
+    EXPLANATION_ONLY,
+    bootstrap_gap_interval,
+    estimate_thresholds,
+    threshold_table,
+)
 from .explain import DEFAULT_TOP_K, explain_datasets, importance_table
 from .metrics import compute_performance, performance_drift_score, performance_table
 from .models import train_models
@@ -41,6 +48,7 @@ class BenchmarkResult:
     drift: pd.DataFrame
     comparison: pd.DataFrame
     importance: dict[str, pd.DataFrame] = field(default_factory=dict)
+    thresholds: pd.DataFrame = field(default_factory=pd.DataFrame)
     artefacts: dict[str, Path] = field(default_factory=dict)
 
     def verdict(self) -> str:
@@ -51,10 +59,11 @@ class BenchmarkResult:
         return str(shifted["verdict"].mode().iloc[0])
 
     def early_warning_rate(self) -> float:
-        """Share of shifted comparisons where explanation drift exceeded performance drift.
+        """Share of shifted comparisons where explanation drift was the larger one.
 
-        The "verdict", which uses an absolute threshold, is conservative for small numbers.
-        This rate is a sign test: 1.0 means the explanation moved more in every case.
+        This is a sign test: 1.0 means the explanation moved more in every case.
+        It says nothing about significance, so read it next to
+        :meth:`significant_gap_rate`.
         """
         shifted = self._shifted()
         if shifted.empty:
@@ -63,6 +72,23 @@ class BenchmarkResult:
         if index.empty:
             return float("nan")
         return float((index > 0).sum() / len(index))
+
+    def significant_gap_rate(self) -> float:
+        """Share of shifted comparisons whose gap interval stays above zero."""
+        shifted = self._shifted()
+        if shifted.empty or "gap_ci_low" not in shifted.columns:
+            return float("nan")
+        low = shifted["gap_ci_low"].dropna()
+        if low.empty:
+            return float("nan")
+        return float((low > 0).sum() / len(low))
+
+    def early_warning_count(self) -> int:
+        """How many shifted comparisons were labelled as explanation drift only."""
+        shifted = self._shifted()
+        if shifted.empty or "verdict" not in shifted.columns:
+            return 0
+        return int((shifted["verdict"] == EXPLANATION_ONLY).sum())
 
     def _shifted(self) -> pd.DataFrame:
         return self.comparison[self.comparison["dataset"] != ORIGINAL_LABEL]
@@ -77,6 +103,7 @@ def run_benchmark(
     k: int = DEFAULT_TOP_K,
     output_dir: Optional[Union[str, Path]] = DEFAULT_OUTPUT_DIR,
     seed: int = RANDOM_STATE,
+    bootstrap_samples: int = BOOTSTRAP_SAMPLES,
 ) -> BenchmarkResult:
     """
     bundle:
@@ -93,21 +120,18 @@ def run_benchmark(
     drift_frames: list[pd.DataFrame] = []
     comparison_frames: list[pd.DataFrame] = []
     importance: dict[str, pd.DataFrame] = {}
+    thresholds: dict[str, object] = {}
 
     for model_name, model in models.items():
-        # performance side
-        scores = {
-            name: compute_performance(bundle.y_test, model.predict_positive_proba(frame))
-            for name, frame in datasets.items()
-        }
+        # model quality on the full test set
         performance_rows += [
-            {"model": model_name, "dataset": name, **values}
-            for name, values in scores.items()
+            {
+                "model": model_name,
+                "dataset": name,
+                **compute_performance(bundle.y_test, model.predict_positive_proba(frame)),
+            }
+            for name, frame in datasets.items()
         ]
-        performance_drift = {
-            name: performance_drift_score(scores[ORIGINAL_LABEL], values)
-            for name, values in scores.items()
-        }
 
         # explanation side
         explanations = explain_datasets(
@@ -117,12 +141,63 @@ def run_benchmark(
         drift_frames.append(model_drift)
         importance[model_name] = importance_table(explanations)
 
+        # The comparison uses the rows that were explained, so both scores are
+        # measured on the same sample and share the same noise level.
+        rows = explanations[ORIGINAL_LABEL].shap_values.index
+        y_rows = bundle.y_test.loc[rows]
+        probabilities = {
+            name: model.predict_positive_proba(frame.loc[rows])
+            for name, frame in datasets.items()
+        }
+        scores = {
+            name: compute_performance(y_rows, prob)
+            for name, prob in probabilities.items()
+        }
+        performance_drift = {
+            name: performance_drift_score(scores[ORIGINAL_LABEL], values)
+            for name, values in scores.items()
+        }
+
+        model_thresholds = estimate_thresholds(
+            explanations[ORIGINAL_LABEL],
+            y_rows,
+            probabilities[ORIGINAL_LABEL],
+            n_samples=bootstrap_samples,
+            seed=seed,
+            k=k,
+        )
+        thresholds[model_name] = model_thresholds
+
         # put the two curves side by side
         comparison = early_warning_table(
             model_drift.set_index("dataset")["explanation_drift_score"].to_dict(),
             performance_drift,
         )
         comparison.insert(1, "model", model_name)
+        comparison["explanation_threshold"] = model_thresholds.explanation
+        comparison["performance_threshold"] = model_thresholds.performance
+
+        intervals = [
+            bootstrap_gap_interval(
+                explanations[ORIGINAL_LABEL],
+                explanations[name],
+                y_rows,
+                probabilities[ORIGINAL_LABEL],
+                probabilities[name],
+                n_samples=bootstrap_samples,
+                seed=seed,
+                k=k,
+            )
+            for name in comparison["dataset"]
+        ]
+        comparison["gap_ci_low"] = [low for low, _ in intervals]
+        comparison["gap_ci_high"] = [high for _, high in intervals]
+        comparison["verdict"] = [
+            model_thresholds.classify(explanation, performance)
+            for explanation, performance in zip(
+                comparison["explanation_drift"], comparison["performance_drift"]
+            )
+        ]
         comparison_frames.append(comparison)
 
     result = BenchmarkResult(
@@ -131,6 +206,7 @@ def run_benchmark(
         drift=pd.concat(drift_frames, ignore_index=True),
         comparison=pd.concat(comparison_frames, ignore_index=True),
         importance=importance,
+        thresholds=threshold_table(thresholds),
     )
 
     if output_dir is not None:
@@ -150,6 +226,7 @@ def _write_artefacts(
         "shift_table": save_table(result.shift, output_dir / "shift_magnitude.csv"),
         "drift_table": save_table(result.drift, output_dir / "explanation_drift.csv"),
         "comparison_table": save_table(result.comparison, output_dir / "early_warning.csv"),
+        "threshold_table": save_table(result.thresholds, output_dir / "thresholds.csv"),
     }
 
     for model_name, frame in result.importance.items():
@@ -186,11 +263,16 @@ def _write_artefacts(
                 "Shift magnitude": result.shift.round(3),
                 "Model performance": result.performance.round(4),
                 "Explanation drift": result.drift.round(3),
-                "Early warning comparison": result.comparison.round(3),
+                "Early warning thresholds": result.thresholds.round(4),
+                "Early warning comparison": result.comparison.round(4),
                 "Verdict": (
                     f"Majority verdict across shifted datasets: **{result.verdict()}**\n\n"
-                    f"Explanation drift exceeded performance drift in "
-                    f"**{result.early_warning_rate():.0%}** of shifted comparisons."
+                    f"Explanation drift was the larger score in "
+                    f"**{result.early_warning_rate():.0%}** of shifted comparisons, "
+                    f"and the gap interval stayed above zero in "
+                    f"**{result.significant_gap_rate():.0%}** of them. "
+                    f"{result.early_warning_count()} comparisons were labelled "
+                    f"'{EXPLANATION_ONLY}'."
                 ),
             },
             intro="Generated by `python -m explanation_drift.pipeline`.",
@@ -210,6 +292,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--top-k", type=int, default=DEFAULT_TOP_K)
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--seed", type=int, default=RANDOM_STATE)
+    parser.add_argument("--bootstrap-samples", type=int, default=BOOTSTRAP_SAMPLES,
+                        help="Resamples used for the thresholds and the gap interval")
     args = parser.parse_args(argv)
 
     result = run_benchmark(
@@ -218,6 +302,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         k=args.top_k,
         output_dir=args.output_dir,
         seed=args.seed,
+        bootstrap_samples=args.bootstrap_samples,
     )
     print(result.comparison.round(3).to_string(index=False))
     print(f"\nVerdict: {result.verdict()}")
