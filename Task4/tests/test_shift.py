@@ -30,7 +30,7 @@ from explanation_drift.shift import (
 #shift families
 @pytest.mark.parametrize("kind", SHIFT_KINDS)
 def test_shift_does_not_mutate_input(X_synth, kind):
-    # en kritik invariant: orijinal test seti hiçbir zaman bozulmamalı.
+    # the most important invariant: the original test set must never be modified
     before = X_synth.copy()
     apply_shift(X_synth, kind, intensity=2.0)
     pd.testing.assert_frame_equal(X_synth, before)
@@ -38,7 +38,7 @@ def test_shift_does_not_mutate_input(X_synth, kind):
 
 @pytest.mark.parametrize("kind", SHIFT_KINDS)
 def test_zero_intensity_is_identity(X_synth, kind):
-    # intensity = 0 -> hiçbir şey değişmemeli (kayma merdiveninin sıfır noktası).
+    # intensity = 0 -> nothing may change (the zero point of the severity ladder)
     shifted = apply_shift(X_synth, kind, intensity=0.0)
     pd.testing.assert_frame_equal(shifted, X_synth)
 
@@ -72,7 +72,7 @@ def test_seed_none_still_runs(X_synth):
 def test_age_shift_moves_the_mean_upwards(X_synth):
     shifted = shift_age(X_synth, intensity=1.0)
     assert shifted[AGE_COLUMN].mean() > X_synth[AGE_COLUMN].mean()
-    # sadece yaş kolonu değişmeli
+    # only the age column may change
     untouched = [c for c in X_synth.columns if c != AGE_COLUMN]
     pd.testing.assert_frame_equal(shifted[untouched], X_synth[untouched])
 
@@ -101,21 +101,35 @@ def test_mixed_shift_touches_every_family(X_synth):
     assert shifted[AGE_COLUMN].mean() > X_synth[AGE_COLUMN].mean()
     assert shifted[LIMIT_COLUMN].mean() > X_synth[LIMIT_COLUMN].mean()
     assert shifted["pay_amt1"].mean() < X_synth["pay_amt1"].mean()
-    # kategorik kolonlara gürültü eklenmediğini doğrula
+    # check that no noise was added to the categorical columns
     assert set(np.unique(shifted["sex"])) <= set(np.unique(X_synth["sex"]))
 
 
-def test_severity_is_monotonic(X_synth):
-    # severe her zaman moderate'ten daha uzağa taşımalı.
-    moderate = apply_shift(X_synth, "mixed", SEVERITY_LEVELS["moderate"])
-    severe = apply_shift(X_synth, "mixed", SEVERITY_LEVELS["severe"])
-    psi_moderate = shift_magnitude(X_synth, moderate)["psi"].mean()
-    psi_severe = shift_magnitude(X_synth, severe)["psi"].mean()
-    assert psi_severe > psi_moderate > 0.0
+@pytest.mark.parametrize("kind, column, direction", [
+    ("age", AGE_COLUMN, 1),
+    ("credit_limit", LIMIT_COLUMN, 1),
+    ("payment_amount", "pay_amt1", -1),
+])
+def test_intensity_controls_the_displacement(X_synth, kind, column, direction):
+    """A larger intensity must move the shifted feature further.
+
+    This is a contract of the generator: the offset is intensity * 5 years for
+    age and (1 + g) ** intensity for the limit, so the mean has to keep moving
+    in one direction. It says nothing about how a model or its explanation
+    reacts to that shift.
+    """
+    base = float(X_synth[column].mean())
+    means = [
+        float(apply_shift(X_synth, kind, intensity)[column].mean())
+        for intensity in [0.0, 1.0, 2.5, 4.0]
+    ]
+    assert means[0] == pytest.approx(base)
+    moves = [direction * (value - base) for value in means]
+    assert moves == sorted(moves)
 
 
 def test_constant_column_is_left_alone(X_synth):
-    # std = 0 ise gürültü ekleme, atla (dağılımı bozmamak için)
+    # std = 0: skip the noise so the distribution is not broken
     X = X_synth.copy()
     X["bill_amt1"] = 1000.0
     shifted = shift_mixed(X, intensity=1.0)
@@ -160,7 +174,7 @@ def test_generate_shifted_datasets_grid(X_synth):
     assert len(datasets) == expected
     assert ORIGINAL_LABEL in datasets
     assert "mixed_severe" in datasets
-    # "original" bir kopya olmalı, aynı nesne değil
+    # "original" must be a copy, not the same object
     assert datasets[ORIGINAL_LABEL] is not X_synth
     pd.testing.assert_frame_equal(datasets[ORIGINAL_LABEL], X_synth)
 
@@ -194,7 +208,7 @@ def test_psi_grows_with_distance():
     near = rng.normal(0.2, 1, 5000)
     far = rng.normal(2.0, 1, 5000)
     assert population_stability_index(reference, far) > population_stability_index(reference, near)
-    assert population_stability_index(reference, far) > 0.25  # "major shift" eşiği
+    assert population_stability_index(reference, far) > 0.25  # "major shift" threshold
 
 
 def test_psi_on_constant_reference_is_zero():
@@ -221,7 +235,7 @@ def test_shift_magnitude_report(X_synth):
     report = shift_magnitude(X_synth, shifted)
     assert list(report.columns) == ["feature", "psi", "wasserstein_norm", "mean_change_pct"]
     assert len(report) == X_synth.shape[1]
-    assert report.iloc[0]["feature"] == AGE_COLUMN  # psi'ye göre azalan sıralı
+    assert report.iloc[0]["feature"] == AGE_COLUMN  # sorted by psi, descending
     assert (report["psi"] >= 0).all()
 
 

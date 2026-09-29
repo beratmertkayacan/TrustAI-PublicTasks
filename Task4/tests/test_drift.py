@@ -22,7 +22,7 @@ from explanation_drift.drift import (
 )
 from explanation_drift.explain import ExplanationResult
 
-# küçük açıklama nesneleri
+# small explanation objects
 
 def make_result(values: dict[str, list[float]], dataset: str = "d") -> ExplanationResult:
     """Build an ExplanationResult straight from literal SHAP columns."""
@@ -36,7 +36,7 @@ def make_result(values: dict[str, list[float]], dataset: str = "d") -> Explanati
 
 @pytest.fixture
 def reference() -> ExplanationResult:
-    # önem sırası: a (2.0) > b (1.0) > c (0.5) > d (0.1)
+    # importance order: a (2.0) > b (1.0) > c (0.5) > d (0.1)
     return make_result(
         {
             "a": [2.0, -2.0, 2.0, -2.0],
@@ -50,7 +50,7 @@ def reference() -> ExplanationResult:
 
 @pytest.fixture
 def reversed_result(reference) -> ExplanationResult:
-    """Tam ters önem sıralaması: d > c > b > a."""
+    """Fully reversed importance order: d > c > b > a."""
     return make_result(
         {
             "a": [0.1, -0.1, 0.1, -0.1],
@@ -61,7 +61,7 @@ def reversed_result(reference) -> ExplanationResult:
         dataset="reversed",
     )
 
-# identity: değişmeyen açıklama sıfır drift üretmeli
+# identity: an unchanged explanation must give zero drift
 def test_identical_explanations_have_zero_drift(reference):
     components = drift_components(reference, reference)
     assert set(components) == set(DRIFT_COMPONENTS)
@@ -92,15 +92,15 @@ def test_top_k_overlap_rejects_bad_k(reference):
     with pytest.raises(ValueError, match="k must be positive"):
         top_k_overlap(reference, reference, k=0)
 
-# 2- rank correlation (hizalama hatasını yakalayan test)
+# 2- rank correlation (the test that catches an alignment bug)
 def test_rank_correlation_detects_reversed_ranking(reference, reversed_result):
-    """Her iki önem serisi de kendi değerine göre sıralı gelir. isimle hiza olmasa ters sırada da +1.0 çıkardı."""
+    """Both importance series arrive sorted by their own values. Without name alignment a reversed order would also give +1.0."""
     correlation = rank_correlation(
         reference.global_importance(), reversed_result.global_importance()
     )
     assert correlation == pytest.approx(-1.0)
  
-# identity: kendi değerine göre sıralı gelen önem serileri arasında tam korelasyon
+# identity: a series compared with itself gives a perfect correlation
 def test_rank_correlation_identity(reference):
     importance = reference.global_importance()
     assert rank_correlation(importance, importance) == pytest.approx(1.0)
@@ -135,14 +135,14 @@ def test_distribution_shift_is_zero_for_identical_values(reference):
 def test_distribution_shift_detects_a_moved_feature(reference):
     moved = make_result(
         {
-            "a": [12.0, 10.0, 11.0, 13.0], # tamamen farklı aralığa taşıdık
+            "a": [12.0, 10.0, 11.0, 13.0], # moved into a completely different range
             "b": [1.0, -1.0, 1.0, -1.0],
             "c": [0.5, -0.5, 0.5, -0.5],
             "d": [0.1, -0.1, 0.1, -0.1],
         }
     )
     report = shap_distribution_shift(reference, moved).set_index("feature")
-    assert report.loc["a", "js_distance"] == pytest.approx(1.0) # örtüşme yok
+    assert report.loc["a", "js_distance"] == pytest.approx(1.0) # no overlap
     assert report.loc["b", "js_distance"] == pytest.approx(0.0)
 
 
@@ -164,7 +164,7 @@ def test_importance_reallocation_bounds():
     left = pd.Series([1.0, 0.0], index=["a", "b"])
     right = pd.Series([0.0, 1.0], index=["a", "b"])
     assert importance_reallocation(left, left) == pytest.approx(0.0)
-    assert importance_reallocation(left, right) == pytest.approx(1.0) # tam el değişimi
+    assert importance_reallocation(left, right) == pytest.approx(1.0) # full handover
     half = pd.Series([0.5, 0.5], index=["a", "b"])
     assert importance_reallocation(left, half) == pytest.approx(0.5)
 
@@ -214,8 +214,8 @@ def test_drift_table_requires_reference(reference):
 
 # research question: which degrades first?
 def test_early_warning_index_sign():
-    assert early_warning_index(0.3, 0.1) == pytest.approx(0.2) # açıklama önde
-    assert early_warning_index(0.1, 0.3) == pytest.approx(-0.2) # performans önde
+    assert early_warning_index(0.3, 0.1) == pytest.approx(0.2) # explanation ahead
+    assert early_warning_index(0.1, 0.3) == pytest.approx(-0.2) # performance ahead
     assert np.isnan(early_warning_index(float("nan"), 0.1))
 
 
@@ -236,7 +236,7 @@ def test_early_warning_table_zero_performance_drift():
 
 
 def test_early_warning_table_unknown_verdict():
-    """Tek sınıfa düşen bir alt kümede performans skoru nan olabilir; bu durumda karar yerine "unknown" densin"""
+    """On a subset with a single class the performance score can be nan; then the verdict must be "unknown"."""
     table = early_warning_table({"a": 0.2}, {"a": float("nan")})
     assert table.loc[0, "verdict"] == "unknown"
     assert np.isnan(table.loc[0, "early_warning_index"])
@@ -247,3 +247,47 @@ def test_early_warning_table_invalid_inputs():
         early_warning_table({"a": 0.1}, {"b": 0.1})
     with pytest.raises(ValueError, match="No datasets"):
         early_warning_table({}, {})
+
+
+# invariants of the metric itself
+def test_drift_score_is_symmetric(reference, reversed_result):
+    """Swapping the two explanations must give the same score."""
+    forward = explanation_drift_score(reference, reversed_result, k=2)
+    backward = explanation_drift_score(reversed_result, reference, k=2)
+    assert forward == pytest.approx(backward)
+
+
+@pytest.mark.parametrize("scale", [0.0, 0.5, 1.0, 5.0, 100.0])
+def test_components_stay_in_unit_range(reference, scale):
+    """Whatever the input, every component and the score must stay in [0, 1]."""
+    other = make_result({
+        "a": [0.1 * scale, -0.2 * scale, 0.3 * scale, 0.0],
+        "b": [1.0 * scale, 1.0, -1.0, 0.5],
+        "c": [0.0, 0.0, 0.0, 0.0],
+        "d": [-2.0 * scale, 2.0, 0.5, -0.5],
+    })
+    components = drift_components(reference, other, k=2)
+    for name, value in components.items():
+        if not np.isnan(value):
+            assert 0.0 <= value <= 1.0, name
+    score = explanation_drift_score(reference, other, k=2)
+    assert 0.0 <= score <= 1.0
+
+
+def test_larger_shift_can_lower_the_drift_score():
+    """A bigger shift does not have to give a bigger drift score.
+
+    For a linear model a SHAP value is weight * (x - background mean), so
+    moving a feature past that mean can bring its attribution back to the
+    original size. Global importance then returns to the reference even though
+    the distribution moved further. The counterexample below is built from that
+    idea: doubling the shift lowers the score.
+    """
+    ref = make_result({"f": [2.0, 2.0, 2.0, 2.0], "g": [1.0, 1.0, 1.0, 1.0]})
+    small = make_result({"f": [0.0, 0.0, 0.0, 0.0], "g": [1.0, 1.0, 1.0, 1.0]})
+    large = make_result({"f": [-2.0, -2.0, -2.0, -2.0], "g": [1.0, 1.0, 1.0, 1.0]})
+
+    score_small = explanation_drift_score(ref, small, k=1)
+    score_large = explanation_drift_score(ref, large, k=1)
+    assert score_large < score_small
+

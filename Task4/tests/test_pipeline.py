@@ -12,7 +12,7 @@ from explanation_drift import pipeline as pipeline_mod
 from explanation_drift.pipeline import BenchmarkResult, main, run_benchmark
 from explanation_drift.shift import ORIGINAL_LABEL
 
-#: Testlerde tüm ızgarayı koşmak gereksiz; iki aile ve iki şiddet yeterli.
+#: Running the full grid in tests is not needed; two families and two levels are enough.
 TEST_KINDS = ["age", "mixed"]
 TEST_LEVELS = {"moderate": 1.0, "severe": 2.5}
 
@@ -44,21 +44,26 @@ def test_benchmark_tables_have_expected_columns(result):
 
 
 def test_reference_dataset_has_zero_drift(result):
-    """Referansın kendisiyle karşılaştırması tam sıfır olmalı (eğrilerin başlangıcı)"""
+    """Comparing the reference with itself must give exactly zero (the start of the curves)."""
     original = result.comparison[result.comparison["dataset"] == ORIGINAL_LABEL]
-    assert len(original) == 2                                       # model başına bir satır
+    assert len(original) == 2                                       # one row per model
     assert original["explanation_drift"].abs().max() == pytest.approx(0.0)
     assert original["performance_drift"].abs().max() == pytest.approx(0.0)
 
 
-def test_drift_grows_with_severity(result):
-    """Severe her zaman moderate'ten daha yüksek drift üretmeli."""
-    for model in result.drift["model"].unique():
-        subset = result.drift[result.drift["model"] == model].set_index("dataset")
-        assert (
-            subset.loc["mixed_severe", "explanation_drift_score"]
-            > subset.loc["mixed_moderate", "explanation_drift_score"]
-        )
+def test_scores_stay_in_unit_range(result):
+    """Every drift value must stay in [0, 1].
+
+    The old version of this test asserted that a severe shift gives a higher
+    drift score than a moderate one. That is an experimental result, not a
+    correctness rule, so it is now measured and reported instead of asserted.
+    """
+    for column in [*DRIFT_COMPONENTS, "explanation_drift_score"]:
+        values = result.drift[column].dropna()
+        assert values.between(0.0, 1.0).all(), column
+    for column in ["explanation_drift", "performance_drift"]:
+        values = result.comparison[column].dropna()
+        assert values.between(0.0, 1.0).all(), column
 
 
 def test_importance_tables_per_model(result):

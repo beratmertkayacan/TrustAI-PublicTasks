@@ -9,6 +9,7 @@ import shap
 from sklearn.linear_model import LinearRegression
 from sklearn.neighbors import KNeighborsClassifier
 
+from explanation_drift import explain as explain_mod
 from explanation_drift.explain import (
     ExplanationResult,
     _as_matrix,
@@ -66,8 +67,8 @@ def test_non_dataframe_background_is_rejected(baseline, bundle):
 def test_shap_values_are_additive(request, bundle, model_name):
     """sum(shap) + base_value == model margin.
 
-    SHAP'ın teorik garantisi budur. Tutmuyorsa ya yanlış uzayda (ölçeklenmemiş veri) hesaplıyoruzdur,
-    ya yanlış sınıfı seçiyoruzdur, ya da base_value yanlıştır. Tek bir assert üç ayrı hata sınıfını birden yakalar.
+    This is the theoretical guarantee of SHAP. If it does not hold, we compute in the wrong space
+    (unscaled data), pick the wrong class, or the base_value is wrong. One assert catches three bug classes.
     """
     model = request.getfixturevalue(model_name)
     result = compute_shap_values(model, bundle.X_test, bundle.X_train)
@@ -107,12 +108,12 @@ def test_as_matrix_passes_through_2d():
 
 def test_as_matrix_takes_positive_class_from_3d():
     values = np.zeros((4, 3, 2))
-    values[:, :, 1] = 7.0 # pozitif sınıf
+    values[:, :, 1] = 7.0 # positive class
     np.testing.assert_allclose(_as_matrix(values, 4, 3), np.full((4, 3), 7.0))
 
 
 def test_as_matrix_takes_positive_class_from_class_list():
- # Eski shap API'si sınıf başına bir dizi döndürür; np.asarray bunu (2, n, d) yapardı ve yanlış eksenden kesit alınırdı.
+ # The old shap API returns one array per class; np.asarray would make it (2, n, d) and we would slice the wrong axis.
     values = [np.zeros((4, 3)), np.full((4, 3), 7.0)]
     np.testing.assert_allclose(_as_matrix(values, 4, 3), np.full((4, 3), 7.0))
 
@@ -160,7 +161,7 @@ def test_explain_datasets_covers_every_dataset(baseline, bundle):
 
 
 def test_explain_datasets_uses_the_same_customers(baseline, bundle):
-    """satır örneklemesi 1 kez: veri setleri arası farkın ne kadarı kayma ne kadarı farklı müşteri"""
+    """Rows are sampled once, so a difference between data sets comes from the shift and not from different customers."""
     datasets = generate_shifted_datasets(bundle.X_test, kinds=["mixed"])
     results = explain_datasets(baseline, datasets, bundle.X_train, max_samples=15)
     indices = [tuple(r.shap_values.index) for r in results.values()]
@@ -169,21 +170,40 @@ def test_explain_datasets_uses_the_same_customers(baseline, bundle):
 
 
 def test_background_stays_frozen_across_datasets(baseline, bundle):
-    """base_value sadece arka plan dağılımına bağlı
-    her dataset için explpainer'ı o datasetle yeniden kursaydık base_value datasetler arası kayar, tek bir eşitlik kontrolü"""
+    """base_value depends only on the background distribution.
+    If the explainer were rebuilt with each data set, base_value would move between data sets. One equality check is enough."""
     datasets = generate_shifted_datasets(bundle.X_test, kinds=["mixed"])
     results = explain_datasets(baseline, datasets, bundle.X_train)
     base_values = {round(r.base_value, 12) for r in results.values()}
     assert len(base_values) == 1
 
 
-def test_shifted_explanations_actually_differ(baseline, bundle):
-    """Kayma açıklamaları değiştirmiyorsa ölçecek bir şey yok"""
+def test_each_dataset_is_explained_with_its_own_rows(monkeypatch, baseline, bundle):
+    """Every data set must reach the explainer as its own shifted frame.
+
+    The old version of this test asserted that the shift changes the
+    explanation. That depends on the model, so it is an experimental result.
+    Here we only check the wiring: the frames handed to the explainer are the
+    shifted frames, not the reference one.
+    """
+    seen = []
+
+    class RecordingExplainer:
+        expected_value = 0.0
+
+        def shap_values(self, X):
+            seen.append(X.copy())
+            return np.zeros(X.shape)
+
+    monkeypatch.setattr(
+        explain_mod, "build_explainer", lambda model, background: RecordingExplainer()
+    )
     datasets = generate_shifted_datasets(bundle.X_test, kinds=["mixed"])
-    results = explain_datasets(baseline, datasets, bundle.X_train)
-    original = results["original"].global_importance()
-    severe = results["mixed_severe"].global_importance()
-    assert not np.allclose(original.values, severe.reindex(original.index).values)
+    explain_datasets(baseline, datasets, bundle.X_train)
+
+    assert len(seen) == len(datasets)
+    for got, frame in zip(seen, datasets.values()):
+        pd.testing.assert_frame_equal(got, baseline.transform(frame))
 
 
 # aggregation (global importance)
@@ -200,7 +220,7 @@ def test_global_importance_matches_manual_mean_abs():
     importance = global_importance(frame)
     assert importance["a"] == pytest.approx(2.0)
     assert importance["b"] == pytest.approx(0.5)
-    assert list(importance.index) == ["a", "b"] # büyükten küçüğe
+    assert list(importance.index) == ["a", "b"] # from large to small
 
 
 def test_global_importance_invalid_inputs():
@@ -213,7 +233,7 @@ def test_global_importance_invalid_inputs():
 def test_top_k_features():
     importance = pd.Series([3.0, 2.0, 1.0], index=["c", "b", "a"])
     assert top_k_features(importance, 2) == ["c", "b"]
-    assert top_k_features(importance, 99) == ["c", "b", "a"] # taşmayı kırp 
+    assert top_k_features(importance, 99) == ["c", "b", "a"] # clip the overflow
     with pytest.raises(ValueError, match="k must be positive"): top_k_features(importance, 0)
 
 
@@ -232,7 +252,7 @@ def test_importance_and_ranking_tables(baseline, bundle):
     table = importance_table(results)
     assert list(table.columns) == list(results)
     assert len(table) == bundle.X_test.shape[1]
-    assert table.iloc[0, 0] == table.iloc[:, 0].max() # ilk column'a göre sıralı
+    assert table.iloc[0, 0] == table.iloc[:, 0].max() # sorted by the first column
 
     ranks = ranking_table(results, k=4)
     assert ranks.shape == (4, len(results))
