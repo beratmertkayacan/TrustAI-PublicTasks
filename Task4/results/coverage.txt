@@ -1,0 +1,21 @@
+$ pytest
+
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.13.3-final-0 _______________
+
+Name                              Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------
+explanation_drift/__init__.py         1      0      0      0   100%
+explanation_drift/data.py            97      0     34      0   100%
+explanation_drift/drift.py          123      0     46      0   100%
+explanation_drift/explain.py        111      0     42      0   100%
+explanation_drift/metrics.py         61      0     32      0   100%
+explanation_drift/models.py          75      0     18      0   100%
+explanation_drift/pipeline.py       115      0     22      1    99%   251->238
+explanation_drift/report.py         130      0     34      1    99%   199->201
+explanation_drift/shift.py          147      0     52      0   100%
+explanation_drift/thresholds.py     104      0     30      0   100%
+-----------------------------------------------------------------------------
+TOTAL                               964      0    310      2    99%
+Required test coverage of 80% reached. Total coverage: 99.84%
+239 passed, 3 warnings in 43.03s
